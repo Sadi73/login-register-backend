@@ -30,29 +30,50 @@ async function run() {
 
         app.post('/login', async (req, res) => {
             try {
-                const { email, password } = req.body;
+                const { provider } = req.query;
+                const { email, password, name, picture, given_name, family_name } = req.body;
 
-                if (!email || !password) {
-                    return res.status(400).json({ error: "Email and password are required." });
-                };
+                if (!email) {
+                    return res.status(400).json({ error: "Email is required." });
+                }
 
-                const query = { email: email };
-                const userInfo = await userCollection.findOne(query);
-                if (!userInfo) {
-                    return res.status(404).json({ error: "User not found" });
-                };
-                const isPasswordValid = await bcrypt.compare(password, userInfo?.password);
-                if (!isPasswordValid) {
-                    return res.status(401).json({ error: "Invalid credentials" });
-                };
+                let user = await userCollection.findOne({ email });
 
-                const { password: _, ...userWithoutPassword } = userInfo;
+                if (provider) {
+                    if (!user) {
+                        user = {
+                            firstName: given_name,
+                            lastName: family_name,
+                            email,
+                            username: email,
+                            role: 'user',
+                            provider,
+                            createdAt: new Date()
+                        };
+                        // Assuming userCollection.insertOne() if needed for new users
+                        await userCollection.insertOne(user);
+                    }
+                } else {
+                    if (!password) {
+                        return res.status(400).json({ error: "Password is required." });
+                    }
+                    if (!user) {
+                        return res.status(404).json({ error: "User not found." });
+                    }
 
-                const token = jwt.sign({ userWithoutPassword }, process.env.JWT_SECRET, { expiresIn: '1h' });
+                    const isPasswordValid = await bcrypt.compare(password, user.password);
+                    if (!isPasswordValid) {
+                        return res.status(401).json({ error: "Invalid credentials." });
+                    }
+                    delete user.password; // Remove password before sending response
+                }
 
-                res.status(200).json({ message: "Login successful", userDetails: { ...userWithoutPassword, token } });
+                const token = jwt.sign({ user }, process.env.JWT_SECRET, { expiresIn: '1h' });
+                res.status(200).json({ message: "Login successful", userDetails: { ...user, token } });
+
             } catch (error) {
-                res.status(500).json({ error });
+                console.error("Login error:", error);
+                res.status(500).json({ error: "Internal server error." });
             }
         });
 
